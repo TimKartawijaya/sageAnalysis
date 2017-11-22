@@ -1,0 +1,233 @@
+---
+title: "Scratch Wild Data
+output: html_notebook
+---
+
+First we load the appropriate libraries.
+```{r, echo = FALSE, include = FALSE}
+library(tidyverse)
+library(stringr)
+```
+
+Then we look at the types of blocks in the data.
+```{r}
+typeBlocks = read_csv("blocklistWild.csv")
+
+#replace categories without values
+typeBlocks = typeBlocks %>% 
+  replace_na(list(Category = "NA")) 
+
+#remove punctuation in column names for match with blocktypes
+typeBlocks$Variable = gsub("[[:punct:]]","",typeBlocks$Variable)
+
+#organize block types by category name
+dt_looks = filter(typeBlocks, Category == "looks")
+dt_sound = filter(typeBlocks, Category == "sound")
+dt_motion = filter(typeBlocks, Category == "motion")
+dt_motor = filter(typeBlocks, Category == "motor")
+dt_variables = filter(typeBlocks, Category == "variables" | Category == "list")
+dt_operators = filter(typeBlocks, Category == "operators" | Category == "NA")
+dt_control = filter(typeBlocks, Category == "control")
+dt_sensing = filter(typeBlocks, Category == "sensing")
+
+#filtered dataset by PECT caregory
+looks = filter(typeBlocks, Category == "looks")
+sound = filter(typeBlocks, Category == "sound")
+motion = filter(typeBlocks, Category == "motion" | Category == "NA")
+variables = filter(typeBlocks, Category == "variables" | Category == "list")
+seq_looping = filter(typeBlocks, Category == "control")
+boolean_exp = filter(typeBlocks, Category == "operators" | Category == "sensing")
+operators = filter(typeBlocks, Category == "operators" | Category == "NA" | Category == "list")
+conditional = filter(typeBlocks, Category == "control")
+coordination = filter(typeBlocks, Category == "control")
+ui_event = filter(typeBlocks, Category == "control")
+
+#categorize categories by score and category name
+```
+
+We then make some functions to help us in 
+```{r}
+#function to compute scores
+#dt = dataset
+#basic_str = list of strings that indicate basic blocks
+#dev_str = list of strings that indicate developing blocks
+#prof_str = list of strings that indicate proficient blocks
+compute_scores = function(dt,basic_str, dev_str, prof_str, name) {
+  dtVar = dt$Variable
+  data_return = dt %>% 
+    mutate(score = ifelse((dtVar %in% basic_str) & (!is.null(basic_str)), 1, 
+                      ifelse((dtVar %in% dev_str) & (!is.null(dev_str)), 2,
+                          ifelse((dtVar %in% prof_str) & (!is.null(prof_str)), 3, 0)))) %>%
+    mutate(CategoryRevised = name) %>%
+    filter(score != 0)
+    return(data_return)
+}
+
+#function to get strings from given index
+getStrings = function(dt, index_list) {
+  list_strings = dt[index_list,]$Variable
+  return(list_strings)
+}
+```
+
+
+Let us now define the words to categorize evidence variables
+```{r, echo = FALSE, include = FALSE}
+#list of strings and index numbers to subset to compute scores
+
+"1. LOOKS"
+#basic
+looksBasicIndex = c(26:28, 46:47)
+looksBasicStrings = getStrings(dt_looks,looksBasicIndex)
+#developing
+looksDevelopingIndex = c(19,22,24:25,44:45)
+looksDevelopingStrings = getStrings(dt_looks,looksDevelopingIndex)
+#proficient
+looksProficientIndex = c(2:18,20,21,23,29:43)
+looksProficientStrings = getStrings(dt_looks,looksProficientIndex)
+
+"2. SOUND"
+#basic
+soundBasicIndex = c(7)
+soundBasicStrings = getStrings(dt_sound,soundBasicIndex)
+#developing
+soundDevelopingIndex = c(3,4,6)
+soundDevelopingStrings = getStrings(dt_sound,soundDevelopingIndex)
+#proficient doesnt exist
+soundProficientIndex = c() 
+soundProficientStrings = c() 
+
+"3.MOTION"
+#basic
+motionBasicIndex = c(1,3,5,7:11)
+motionBasicStrings = c(getStrings(dt_motion,motionBasicIndex),getStrings(dt_operators,24))
+#developing
+motionDevelopingIndex = c(4,6)
+motionDevelopingStrings = c(getStrings(dt_motion,motionDevelopingIndex),getStrings(dt_operators,17))
+#proficient
+motionProficientIndex = c(2,12:15)
+motionProficientStrings = getStrings(dt_motion,motionProficientIndex)
+"4.VARIABLES"
+#basic #Doesnt exist
+variablesBasicIndex = c()
+variablesBasicStrings = c()
+#developing
+variablesDevelopingIndex = c(2,6,10,12,13) 
+variablesDevelopingStrings = getStrings(dt_variables,variablesDevelopingIndex)
+#proficient
+variablesProficientIndex = c(1,3:9,11) 
+variablesProficientStrings = getStrings(dt_variables,variablesProficientIndex) 
+
+"5.SEQUENCE AND LOOPING"
+#basic
+seq_loopingBasicIndex = c() 
+seq_loopingBasicStrings = c()
+#developing
+seq_loopingDevelopingIndex = c(8,9) 
+seq_loopingDevelopingStrings = getStrings(dt_control,seq_loopingDevelopingIndex) 
+#proficient
+seq_loopingProficientIndex = c(12,14,15) 
+seq_loopingProficientStrings = getStrings(dt_control,seq_loopingProficientIndex) 
+
+"6. BOOLEAN"
+#basic
+boolean_expBasicIndex = c(2,5,6,7,11,13,15) 
+boolean_expBasicStrings = getStrings(dt_sensing,boolean_expBasicIndex) 
+#developing
+boolean_expDevelopingIndex = c(6,7,8) 
+boolean_expDevelopingStrings = getStrings(dt_operators,boolean_expDevelopingIndex) 
+#proficient
+boolean_expProficientIndex = c(1,10,19)
+boolean_expProficientStrings = getStrings(dt_operators,boolean_expProficientIndex)
+
+"7. OPERATORS"
+#basic
+operatorsBasicIndex = c(2:9,11,21,22)
+operatorsBasicStrings = getStrings(dt_operators,operatorsBasicIndex) 
+#developing
+operatorsDevelopingIndex = c(14,18,23) 
+operatorsDevelopingStrings = getStrings(dt_operators,operatorsDevelopingIndex) 
+#proficient
+operatorsProficientIndex = c(1,3,4,5,7,8,9) 
+operatorsProficientStrings = getStrings(dt_variables,operatorsProficientIndex) 
+
+"8. CONDITIONAL"
+#basic
+conditionalBasicIndex = c(9,10) 
+conditionalBasicStrings = getStrings(dt_control,conditionalBasicIndex)
+#developing
+conditionalDevelopingIndex = c(11) 
+conditionalDevelopingStrings = getStrings(dt_control,conditionalDevelopingIndex)  
+#proficient
+conditionalProficientIndex = c() 
+conditionalProficientStrings = c()
+
+"9. COORDINATION"
+#basic
+coordinationBasicIndex = c(17) 
+coordinationBasicStrings = getStrings(dt_control,coordinationBasicIndex) 
+#developing
+coordinationDevelopingIndex = c(6,5,3) 
+coordinationDevelopingStrings = getStrings(dt_control,coordinationDevelopingIndex)
+#proficient
+coordinationProficientIndex = c(15) 
+coordinationProficientStrings = getStrings(dt_control,coordinationProficientIndex) 
+"10. USER INTERFACE EVENT"
+#basic
+ui_eventBasicIndex = c(2)
+ui_eventBasicStrings = getStrings(dt_control,ui_eventBasicIndex)
+#developing
+ui_eventDevelopingIndex = c(1,4) 
+ui_eventDevelopingStrings = getStrings(dt_control,ui_eventDevelopingIndex) 
+#proficient
+ui_eventProficientIndex = c(7) 
+ui_eventProficientStrings = getStrings(dt_control,ui_eventProficientIndex) 
+
+```
+
+Next we proceed with calculating the scores. 
+```{r}
+#list of strings and index numbers to subset to compute scores
+#LOOKS
+computed_looks = compute_scores(looks,looksBasicStrings,looksDevelopingStrings,looksProficientStrings, "looks")
+#SOUND
+computed_sound = compute_scores(sound,soundBasicStrings,soundDevelopingStrings,soundProficientStrings, "sound")
+#MOTION
+computed_motion = compute_scores(motion,motionBasicStrings,motionDevelopingStrings,motionProficientStrings, "motion")
+#VARIABLES
+computed_variables = compute_scores(variables,variablesBasicStrings,variablesDevelopingStrings,variablesProficientStrings, "variables")
+#SEQUENCE AND LOOPING
+computed_seq_looping = compute_scores(seq_looping,seq_loopingBasicStrings,seq_loopingDevelopingStrings,seq_loopingProficientStrings, "seq_looping")
+#BOOLEAN
+computed_boolean_exp = compute_scores(boolean_exp,boolean_expBasicStrings,boolean_expDevelopingStrings,boolean_expProficientStrings, "boolean_exp")
+#OPERATORS
+computed_operators = compute_scores(operators,operatorsBasicStrings,operatorsDevelopingStrings,operatorsProficientStrings, "operators")
+#CONDITIONAL
+computed_conditional = compute_scores(conditional,conditionalBasicStrings,conditionalDevelopingStrings,conditionalProficientStrings, "conditional")
+#COORDINATION
+computed_coordination = compute_scores(coordination,coordinationBasicStrings,coordinationDevelopingStrings,coordinationProficientStrings, "coordination")
+#USER INTERFACE EVENT
+computed_ui_event = compute_scores(ui_event,ui_eventBasicStrings,ui_eventDevelopingStrings,ui_eventProficientStrings, "ui_event")
+
+#order the vectors by score
+computed_looks = computed_looks[order(computed_looks$score),]
+computed_sound = computed_sound[order(computed_sound$score),]
+computed_motion = computed_motion[order(computed_motion$score),]
+computed_variables = computed_variables[order(computed_variables$score),]
+computed_seq_looping = computed_seq_looping[order(computed_seq_looping$score),]
+computed_boolean_exp = computed_boolean_exp[order(computed_boolean_exp$score),]
+computed_operators = computed_operators[order(computed_operators$score),]
+computed_conditional = computed_conditional[order(computed_conditional$score),]
+computed_coordination = computed_coordination[order(computed_coordination$score),]
+computed_ui_event = computed_ui_event[order(computed_ui_event$score),]
+
+```
+
+Now that we have all the scores, we combine all of the dataframes into one and print the output.
+```{r}
+dtfinal = bind_rows(computed_looks,computed_sound,computed_motion,computed_variables,computed_seq_looping,computed_boolean_exp,computed_operators,computed_conditional,computed_coordination,computed_ui_event)
+
+dtFinal = select(dtfinal,Variable,score,CategoryRevised)
+colnames(dtFinal) = c("block","score","c=ategory")
+write.csv(dtFinal,"ev_keys.csv")
+```

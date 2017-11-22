@@ -1,0 +1,264 @@
+---
+title: "Computing Scores for Wild Data"
+output: html_notebook
+---
+
+After we obtain the key table which indicates what blocks indicate what score, we then map it into the wild dataset.
+
+We first load the libraries.
+```{r, echo=FALSE, include=FALSE}
+library(tidyverse)
+library(data.table)
+```
+
+Then we load the dataset and the key table. For experimenting, we look at the first ten rows of the data
+
+```{r}
+project_blocks = read_csv("project_blocks.csv")
+
+```
+
+```{r}
+pb_test = project_blocks[1:100,]
+pb_test$doifelse
+#saveRDS(pb_test,"project1000.rds")
+dtWild = filter(pb_test,doifelse > 2)
+# dtWild = as.tibble(readRDS("project_blocks.rds"))
+dtkey = as.data.table(read_csv("ev_keys.csv"))
+dtkey = as.tibble(select(dtkey,block,score,category))
+```
+
+Wrangle data to have a cleaned WildClean
+```{r}
+colnames(dtWild) = gsub("[[:punct:]]","",colnames(dtWild)) #clean column names
+dtWild_t = t(dtWild)
+block = colnames(dtWild)
+dtWildClean= as.tibble(cbind(block,dtWild_t))
+rownames(dtWildClean) = c() #remove row names
+coln = vector()
+for (i in 1:length(rownames(dtWild))){
+  coln[i] = paste("respondent",i,sep="")
+}
+colnames(dtWildClean) = c("block",coln)
+```
+
+Testing
+```{r}
+compute_dataset(dtWildClean,dtkey,1)
+```
+
+```{r}
+#Helper function used in compute dataset return a boolean to check if the block exists in the data set
+#n: threshold of num of blocks to check
+  checkBlock = function(dt,blockname,n = 0){
+    return(nrow(filter(dt, block==blockname)) != 0 && filter(dt, block==blockname)$num > n)
+  }
+
+#Helper function used in compute dataset return a boolean to check if the characters in the block array #exists in the data set
+#n: threshold of num of blocks to check
+  checkBlockArray = function(dt,blockArray,n = 0){
+    for (i in 1:length(blockArray)){
+      if (nrow(filter(dt, block==blockArray[i])) != 0 && filter(dt, block==blockArray[i])$num > n){
+        return(TRUE)
+      }
+    }
+    return(FALSE)
+  }
+```
+
+Now lets to generalize the above code
+```{r}
+#dt = dtWildClean
+#dt_key = dtKey, key
+#respNum = number of respondent to get from
+#PRECONDITION: column titles of scores in dtWildClean must be in the format "respondent#"
+compute_dataset = function(dt, dt_key, respNum){
+  resp = paste("respondent",respNum,sep="")
+  #get scores of respondent #5
+  #get dataset of respondent, the blocknames alongside how many exists in the project
+  dt_resp = as.tibble(cbind(dt$block,dt[resp]))
+  colnames(dt_resp) = c("V1","V2")
+  dt_resp$V2 = as.numeric(dt_resp$V2) #set the numbers as numeric from character
+  dt_resp_filter = dt_resp %>% #filter out blocks that do not exist
+    filter(V2 != 0)
+  colnames(dt_resp_filter) = (c("block","num")) 
+  
+  #map existing blocks with key table
+  dt_resp_scores = left_join(dt_resp_filter,dt_key,by="block")
+  dt_resp_scores = dt_resp_scores %>% #omit blocks that do not exist
+    na.omit()
+  
+  #RESULT: dt_resp_scores = 
+  #scores of respondents, with category, block name, and the number of times it appears
+  
+  #initialize final data frame
+  dt_return = as.tibble(data.frame(category = character(), ev_score = integer()))
+  dt_return$category = as.character(dt_return$category)
+  
+  #compute scores of respondent based on category
+  categoryVec = unique(dt_key$category)
+  
+  for (i in 1:length(categoryVec)){
+    category_dt = filter(dt_resp_scores,category == categoryVec[i])
+    if (!nrow(category_dt)==0) score_dt = c(categoryVec[i],max(category_dt$score))
+    else score_dt = c(categoryVec[i],0)
+    dt_return[i,] = score_dt
+  }
+  
+  #assume for variables and sequences
+  #for variables, always assume 1, as we assume a sprite is initialized in every project
+  if (filter(dt_return,category=="variables")$ev_score == 0) { #if 0, change to 1
+    dt_return[4,2] = 1
+  }
+  #for sequences, assume 1 if green flag block present
+  if (filter(dt_return,category=="seq_looping")$ev_score == 0 & checkBlock(dt_resp_scores,"eventhatmorphstartclicked")) {
+    dt_return[5,2] = 1
+  }
+  
+  #compute parallelization, initialize location, and initialize looks
+  #parallelization = 1 if 2 sprites start at same event, i.e. when two green flag blocks are present
+  if(checkBlock(dt_resp_scores,"eventhatmorphstartclicked",1)) {
+    dt_return[11,] = c("parallelization",1)
+  } else {
+    dt_return[11,] = c("parallelization",0)
+  }
+  
+  #if more than one doifelse, assume nested ifelse 
+if (checkBlock(dt_resp_scores,"doifelse",1)){
+  dt_return[8,2] = 3
+}
+  
+  #initialize location = 1 if green flag block is present(eventhatmorphstartclicked) and setxpos and setypos also exists
+  if(checkBlock(dt_resp_scores,"eventhatmorphstartclicked") & (checkBlock(dt_resp_scores,"setxpos") |checkBlock(dt_resp_scores,"setypos"))) {
+    dt_return[12,] = c("initialize_location",1)
+  } else {
+    dt_return[12,] = c("initialize_location",0)
+  }
+  
+  lookBlocks = filter(filter(dt_key,category=="looks"), score != 1)
+  #initialize looks = 1 if green flag block is present and looks exist (except say and think)
+  if(checkBlock(dt_resp_scores,"eventhatmorphstartclicked") & (checkBlockArray(dt_resp_scores,lookBlocks$block)))   {
+    dt_return[13,] = c("initialize_looks",1)
+  } else {
+    dt_return[13,] = c("initialize_looks",0)
+  }
+  dt_return
+  return(dt_return)
+}
+#RESULT: dt_return = ev of respondents
+```
+
+```{r}
+  
+```
+
+
+Now lets use this function to compute scores for all the respondents 
+```{r, echo=FALSE, include=FALSE}
+for (i in 2:length(colnames(dtWildClean))-1){
+  if(i == 1){
+    dt_final = compute_dataset(dtWildClean,dtkey,i)
+    colnames(dt_final) = c("category",paste("respondent",i,sep=""))
+  } else {
+  dt_temp = compute_dataset(dtWildClean,dtkey,i)
+  colnames(dt_temp) = c("category",paste("respondent",i,sep=""))
+  dt_final = left_join(dt_final,dt_temp,by="category")
+  }
+}
+```
+
+```{r}
+write.csv(dt_final,"ev_scores.csv")
+```
+
+Now we try to map scores for the 5th respondent
+```{r}
+#get scores of respondent #5
+#get dataset of respondent, the blocknames alongside how many exists in the project
+dt_resp = as.tibble(cbind(dtWildClean$block,dtWildClean["respondent5"]))
+colnames(dt_resp) = c("V1","V2")
+dt_resp$V2 = as.numeric(dt_resp$V2) #set the numbers as numeric from character
+dt_resp_filter = dt_resp %>% #filter out blocks that do not exist
+  filter(V2 != 0)
+colnames(dt_resp_filter) = (c("block","num")) 
+dt_resp_scores = left_join(dt_resp_filter,dtkey,by="block") #map existing blocks with key table
+dt_resp_scores = dt_resp_scores %>% #omit blocks that do not exist
+  na.omit()
+
+#RESULT: dt_resp_scores = 
+#scores of respondents, with category, block name, and the number of times it appears
+
+#initialize final data frame
+dt_return = as.tibble(data.frame(category = character(), ev_score = integer()))
+dt_return$category = as.character(dt_return$category)
+
+dt_resp_scores_ordered = dt_resp_scores[order(dt_resp_scores$score),] #order the scores for view
+
+#compute scores of respondent
+categoryVec = unique(dtkey$category)
+
+for (i in 1:length(categoryVec)){
+  category_dt = filter(dt_resp_scores,category == categoryVec[i])
+  if (!nrow(category_dt)==0) score_dt = c(categoryVec[i],max(category_dt$score))
+  else score_dt = c(categoryVec[i],0)
+  dt_return[i,] = score_dt
+}
+
+#return a boolean to check if the block exists in the data set
+#n: how many blocks to check
+checkBlock = function(dt,blockname,n = 0){
+  return(nrow(filter(dt_resp_scores, block==blockname)) != 0 && filter(dt_resp_scores, block==blockname)$num > n)
+}
+
+checkBlockArray = function(dt,blockArray,n = 0){
+  for (i in 1:length(blockArray)){
+    if (nrow(filter(dt_resp_scores, block==blockArray[i])) != 0 && filter(dt_resp_scores, block==blockArray[i])$num > n){
+      return(TRUE)
+    }
+  }
+  return(FALSE)
+}
+
+#assume for variables and sequences
+#for variables, always assume 1, as we assume a sprite is initialized in every project
+if (filter(dt_return,category=="variables")$ev_score == 0) { #if 0, change to 1
+  dt_return[4,2] = 1
+}
+#for sequences, assume 1 if green flag block present
+if (filter(dt_return,category=="seq_looping")$ev_score == 0 & checkBlock(dt_resp_scores,"eventhatmorphstartclicked")) {
+  dt_return[5,2] = 1
+}
+
+
+
+#compute parallelization, initialize location, and initialize looks
+#parallelization = 1 if 2 sprites start at same event, i.e. when two green flag blocks are present
+if(checkBlock(dt_resp_scores,"eventhatmorphstartclicked",1)) {
+  dt_return[11,] = c("parallelization",1)
+} else {
+  dt_return[11,] = c("parallelization",0)
+}
+
+#initialize location = 1 if green flag block is present(eventhatmorphstartclicked) and setxpos and setypos also exists
+if(checkBlock(dt_resp_scores,"eventhatmorphstartclicked") & (checkBlock(dt_resp_scores,"setxpos") |checkBlock(dt_resp_scores,"setypos"))) {
+  dt_return[12,] = c("initialize_location",1)
+} else {
+  dt_return[12,] = c("initialize_location",0)
+}
+
+
+lookBlocks = filter(filter(dtkey,category=="looks"), score != 1)
+#initialize looks = 1 if green flag block is present and looks exist (except say and think)
+if(checkBlock(dt_resp_scores,"eventhatmorphstartclicked") & (checkBlockArray(dt_resp_scores,lookBlocks$block))) {
+  dt_return[13,] = c("initialize_looks",1)
+} else {
+  dt_return[13,] = c("initialize_looks",0)
+}
+
+#RESULT: dt_return = ev of respondents
+dt_return
+dt_resp_scores_ordered
+```
+```{r}
+df = readRDS("project_blocks.rds")
+```
